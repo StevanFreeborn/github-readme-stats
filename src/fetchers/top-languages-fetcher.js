@@ -19,10 +19,10 @@ const fetcher = (variables, token) => {
   return request(
     {
       query: `
-      query userInfo($login: String!, $first: Int, $after: String) {
+      query userInfo($login: String!, $after: String) {
         user(login: $login) {
           # fetch only owner repos & not forks
-          repositories(ownerAffiliations: OWNER, isFork: false, first: $first, after: $after) {
+          repositories(ownerAffiliations: OWNER, isFork: false, first: 100, after: $after) {
             nodes {
               name
               languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
@@ -103,7 +103,6 @@ const fetchTopLanguages = async (username, exclude_repo = []) => {
   while (hasNextPage) {
     const queryVariables = {
       login: username,
-      first: 100,
       after: endCursor,
     };
 
