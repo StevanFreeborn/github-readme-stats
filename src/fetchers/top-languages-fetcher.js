@@ -19,10 +19,10 @@ const fetcher = (variables, token) => {
   return request(
     {
       query: `
-      query userInfo($login: String!) {
+      query userInfo($login: String!, $first: String, $after: String) {
         user(login: $login) {
           # fetch only owner repos & not forks
-          repositories(ownerAffiliations: OWNER, isFork: false) {
+          repositories(ownerAffiliations: OWNER, isFork: false, first: $first, after: $after) {
             nodes {
               name
               languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
@@ -34,6 +34,10 @@ const fetcher = (variables, token) => {
                   }
                 }
               }
+            }
+            pageInfo {
+              hasNextPage
+              endCursor
             }
           }
         }
@@ -48,17 +52,12 @@ const fetcher = (variables, token) => {
 };
 
 /**
- * Fetch top languages for a given username.
- *
- * @param {string} username GitHub username.
- * @param {string[]} exclude_repo List of repositories to exclude.
- * @returns {Promise<import("./types").TopLangData>} Top languages data.
+ * @method handleQueryErrors - Evaluates the query response data for errors and handles them properly.
+ * @param {res} res - The response from the graphQL query.
+ * @returns {void} - Does not return anything.
+ * @throws {Error | CustomError} - If response data contains errors
  */
-const fetchTopLanguages = async (username, exclude_repo = []) => {
-  if (!username) throw new MissingParamError(["username"]);
-
-  const res = await retryer(fetcher, { login: username });
-
+const handleQueryErrors = (res) => {
   if (res.data.errors) {
     logger.error(res.data.errors);
     throw Error(res.data.errors[0].message || "Could not fetch user");
@@ -84,8 +83,37 @@ const fetchTopLanguages = async (username, exclude_repo = []) => {
       CustomError.GRAPHQL_ERROR,
     );
   }
+};
 
-  let repoNodes = res.data.data.user.repositories.nodes;
+/**
+ * Fetch top languages for a given username.
+ *
+ * @param {string} username GitHub username.
+ * @param {string[]} exclude_repo List of repositories to exclude.
+ * @returns {Promise<import("./types").TopLangData>} Top languages data.
+ */
+const fetchTopLanguages = async (username, exclude_repo = []) => {
+  if (!username) throw new MissingParamError(["username"]);
+
+  let repoNodes = [];
+  let hasNextPage = true;
+  let endCursor = null;
+
+  // page through all user repositories.
+  while (hasNextPage) {
+    const queryVariables = {
+      login: username,
+      first: 100,
+      after: endCursor,
+    };
+
+    const res = await retryer(fetcher, queryVariables);
+    handleQueryErrors(res);
+    repoNodes.push(...res.data.data.user.repositories.nodes);
+    hasNextPage = res.data.data.user.repositories.pageInfo.hasNextPage;
+    endCursor = res.data.data.user.repositories.pageInfo.endCursor;
+  }
+
   let repoToHide = {};
 
   // populate repoToHide map for quick lookup
